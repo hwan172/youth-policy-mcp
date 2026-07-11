@@ -55,7 +55,7 @@ async def search_youth_policies(
     region: 거주 시도명으로 필터(예: '서울'). category: 대/중분류 키워드(예: '주거','금융').
     각 result 는 구조화 자격조건 포함 → policy_id 로 check_eligibility 판정.
     """
-    return await policies.search(settings.youthcenter_api_key, query, region, category, k)
+    return await policies.search(settings.youthcenter_policy_key, query, region, category, k)
 
 
 @mcp.tool(

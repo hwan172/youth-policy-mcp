@@ -15,9 +15,15 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
-    # 온통청년 청년정책 API 키 (공공데이터포털 15143273 / 한국고용정보원).
+    # 온통청년(youthcenter.go.kr) OPEN API 키 3종. 인증방식은 쿼리파라미터 apiKeyNm.
     # 미설정이면 None → 클라이언트는 내장 코퍼스 기반 mock 으로 폴백.
-    youthcenter_api_key: str | None
+    #
+    #   youthcenter_policy_key   : 청년정책 목록  (/go/ythip/getPlcy)    ← 정책 검색·자격판정
+    #   youthcenter_contents_key : 정책소식 콘텐츠 (/go/ythip/getContent) ← 향후 툴 후보
+    #   youthcenter_centers_key  : 청년센터·공간  (/go/ythip/getSpace)   ← 향후 툴 후보
+    youthcenter_policy_key: str | None
+    youthcenter_contents_key: str | None
+    youthcenter_centers_key: str | None
     # 서버 실행 설정
     transport: str
     host: str
@@ -31,7 +37,10 @@ def _env(name: str) -> str | None:
 
 def load_settings() -> Settings:
     return Settings(
-        youthcenter_api_key=_env("YOUTHCENTER_API_KEY"),
+        # YOUTHCENTER_API_KEY_POLICY 우선, 없으면 구 단일키(YOUTHCENTER_API_KEY)로 폴백(하위호환).
+        youthcenter_policy_key=_env("YOUTHCENTER_API_KEY_POLICY") or _env("YOUTHCENTER_API_KEY"),
+        youthcenter_contents_key=_env("YOUTHCENTER_API_KEY_CONTENTS"),
+        youthcenter_centers_key=_env("YOUTHCENTER_API_KEY_CENTERS"),
         transport=os.environ.get("MCP_TRANSPORT", "stdio").lower(),
         host=os.environ.get("MCP_HOST", "0.0.0.0"),
         # 클라우드가 PORT를 주입하는 경우(Git 소스 배포)도 수용

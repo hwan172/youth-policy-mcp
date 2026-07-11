@@ -1,11 +1,14 @@
-"""온통청년 청년정책 OPEN API 클라이언트 (공공데이터포털 15143273 / 한국고용정보원).
+"""온통청년(youthcenter.go.kr) 청년정책 OPEN API 클라이언트 (한국고용정보원 / 공공데이터포털 15143273).
 
-⚠️ 키 발급 후 라이브 검증 필요.
-  - 공식 문서 페이지(youthcenter.go.kr/cmnFooter/openapiIntro/oaiDoc, data.go.kr/data/15143273)는
-    파라미터·응답 필드 표를 JS로 렌더링해 정적 스크래핑으로 확정하지 못했다(2026-07 조사).
-  - 아래 엔드포인트·필드 매핑은 2025년 개편된 신규 청년정책 API(getPlcy 계열)의 '알려진 최선' 규격이다.
-    실제 응답과 대조해 _ENDPOINT / _map_item() 필드명을 최종 조정할 것.
-  - 조사 출처: 공공데이터포털 15143273, youthcenter.go.kr OPEN API 이용안내/마이페이지.
+✅ 라이브 검증 완료 (2026-07, 실제 발급키로 httpx 호출 대조).
+  - 엔드포인트 : GET https://www.youthcenter.go.kr/go/ythip/getPlcy
+  - 인증       : 쿼리파라미터 apiKeyNm=<키>  (구 API 의 openApiVlak 아님)
+  - 응답 포맷  : rtnType=json 지정 시 JSON. 래핑 = result.youthPolicyList[], 건수 = result.pagging.totCount
+  - 검색       : plcyNm=<질의>  (정책명 부분일치. plcyKywdNm 은 '보조금' 같은 통제 태그라 자유질의엔 부적합)
+  - 분류필터   : lclsfNm=<대분류명>  (예: '주거','일자리','금융･복지･문화')
+  - 페이지네이션: pageNum / pageSize
+  - 지역필터   : API 는 zipCd(법정동코드) 만 받고 시도명 필터는 없음 → 지역 필터는 코퍼스 융합 단계에서 처리.
+  - 아래 _map_item() 필드명은 실제 응답 필드를 1순위로, 방어적 폴백을 2순위로 둔다.
 
 정직성 원칙(기존 레포 계승): 키가 없거나 호출이 실패하면 조용히 가짜 데이터를 흘리지 않는다.
 내장 코퍼스를 mock 폴백으로 쓰되 응답에 is_mock=True 와 note 로 명시한다.
@@ -18,19 +21,19 @@ from .. import cache
 from ..policy_corpus import POLICIES, Policy
 from ..retrieval import bm25_search
 
-# 2025 개편 신규 API(JSON 지원). 키 발급 후 실제 host/경로 재확인 필요.
+# 2025 개편 신규 API(JSON 지원). 라이브 검증 완료(위 주석 참조).
 _ENDPOINT = "https://www.youthcenter.go.kr/go/ythip/getPlcy"
-_TIMEOUT = 6.0
-_CACHE_TTL = 300.0  # 라이브 성공 결과만 5분 캐시
+_TIMEOUT = 3.0        # p99 예산: 온통청년 정상응답 <1s, 여유 포함 3s 컷(초과 시 mock 폴백)
+_CACHE_TTL = 300.0    # 라이브 성공 결과만 5분 캐시
 
 
 def _map_item(item: dict) -> dict:
-    """API 응답 아이템 → 내부 표준 dict. 필드명은 라이브 검증 후 조정(위 주석 참조)."""
+    """API 응답 아이템 → 내부 표준 dict. 실제 필드명 1순위 + 방어적 폴백."""
     def g(*keys: str) -> str:
         for k in keys:
             v = item.get(k)
-            if v not in (None, ""):
-                return str(v)
+            if v is not None and str(v).strip() != "":  # 공백-only('       ') 도 미설정 취급
+                return str(v).strip()
         return ""
 
     def gi(*keys: str):
@@ -40,6 +43,15 @@ def _map_item(item: dict) -> dict:
         except ValueError:
             return None
 
+    # 신청/사업 기간: aplyYmd(신청기간) → 사업기간(bizPrdBgngYmd~EndYmd) → bizPrdEtcCn('연중' 등)
+    period = g("aplyYmd", "bizPrdCn")
+    if not period:
+        bgn, end = g("bizPrdBgngYmd"), g("bizPrdEndYmd")
+        if bgn or end:
+            period = f"{bgn} ~ {end}".strip(" ~")
+    if not period:
+        period = g("bizPrdEtcCn")
+
     return {
         "policy_id": g("plcyNo", "bizId", "polyBizSecd"),
         "name": g("plcyNm", "polyBizSttus"),
@@ -47,17 +59,24 @@ def _map_item(item: dict) -> dict:
         "support_content": g("plcySprtCn", "sporCn"),
         "category": g("lclsfNm", "polyBizTy"),
         "subcategory": g("mclsfNm"),
+        "keyword": g("plcyKywdNm"),
         "age_min": gi("sprtTrgtMinAge", "ageInfo"),
         "age_max": gi("sprtTrgtMaxAge"),
-        "income_note": g("earnCndSeCd", "earnEtcCn", "earnCn"),
-        "region_code": g("zipCd", "polyRlmCd"),
+        "age_limited": g("sprtTrgtAgeLmtYn"),  # 'Y'=연령제한 있음 / 'N'=제한 없음
+        "income_note": g("earnEtcCn", "earnCndSeCd", "earnCn"),
+        "income_min": gi("earnMinAmt"),
+        "income_max": gi("earnMaxAmt"),
+        "region_code": g("zipCd", "polyRlmCd"),  # 콤마구분 법정동코드
         "employment_text": g("jobCd", "empmSttsCn"),
         "education_text": g("schoolCd", "accrRqisCn"),
         "marital_text": g("mrgSttsCd"),
-        "extra_qualification": g("addAplyQlfcCndCn", "etct"),
-        "apply_url": g("aplyUrlAddr", "rfcSiteUrlAddr1"),
-        "apply_period": g("aplyYmd", "bizPrdCn"),
-        "agency": g("sprvsnInstCdNm", "rgtrInstCdNm", "cnsgNmor"),
+        "extra_qualification": g("addAplyQlfcCndCn", "ptcpPrpTrgtCn", "etct"),
+        "apply_method": g("plcyAplyMthdCn"),
+        "documents": g("sbmsnDcmntCn"),
+        "apply_url": g("aplyUrlAddr", "refUrlAddr1", "refUrlAddr2"),
+        "ref_url": g("refUrlAddr1", "refUrlAddr2"),
+        "apply_period": period,
+        "agency": g("sprvsnInstCdNm", "operInstCdNm", "rgtrInstCdNm"),
     }
 
 
@@ -82,7 +101,7 @@ def _mock_search(query: str | None, region: str | None, category: str | None, pa
         "count": len(items),
         "is_mock": True,
         "source": "내장 청년정책 코퍼스 (온통청년 API 키 미설정 → mock 폴백)",
-        "note": ("YOUTHCENTER_API_KEY 미설정 또는 API 호출 실패로 내장 코퍼스로 응답했습니다. "
+        "note": ("YOUTHCENTER_API_KEY_POLICY 미설정 또는 API 호출 실패로 내장 코퍼스로 응답했습니다. "
                  "라이브 데이터가 아니며, 정책 목록은 큐레이션된 대표 정책으로 제한됩니다."),
     }
 
@@ -106,15 +125,15 @@ async def search_policies(
         return cached
 
     params: dict[str, str | int] = {
-        "apiKeyNm": key,          # 키 발급 후 실제 파라미터명 확인 필요(예: apiKeyNm)
+        "apiKeyNm": key,          # 인증: 쿼리파라미터 apiKeyNm (라이브 검증 완료)
         "pageNum": page_num,
         "pageSize": page_size,
         "rtnType": "json",
     }
     if query:
-        params["plcyKywdNm"] = query
+        params["plcyNm"] = query   # 정책명 부분일치 검색(자유질의). plcyKywdNm 은 통제 태그라 부적합.
     if category:
-        params["lclsfNm"] = category
+        params["lclsfNm"] = category  # 대분류명 필터(예: 주거/일자리/금융･복지･문화)
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

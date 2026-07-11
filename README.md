@@ -57,13 +57,18 @@ docker build --platform linux/amd64 -t policy-mcp .
 2. 프로젝트 루트에 `.env` 생성 후:
 
    ```
-   YOUTHCENTER_API_KEY=발급받은_인증키
+   YOUTHCENTER_API_KEY_POLICY=발급받은_정책API_인증키
+   # (선택) 아래 두 키는 향후 콘텐츠/청년센터 툴용 — 미설정이어도 정책 검색은 동작
+   # YOUTHCENTER_API_KEY_CONTENTS=발급받은_콘텐츠API_인증키
+   # YOUTHCENTER_API_KEY_CENTERS=발급받은_청년센터API_인증키
    ```
 
-> ⚠️ 온통청년 API의 엔드포인트/파라미터/응답 필드는 공식 문서가 JS로 렌더링되어 정적 확인이
-> 어려웠다. `src/policy_mcp/clients/youthcenter.py`는 2025 개편 신규 API(getPlcy 계열)의 알려진
-> 최선 규격으로 작성돼 있으며, **키 발급 후 실제 응답과 대조해 필드 매핑을 최종 검증**해야 한다.
-> 파일 상단 주석 참고.
+   > 구 단일키 `YOUTHCENTER_API_KEY` 도 하위호환으로 정책키 폴백으로 인식된다.
+
+> ✅ 온통청년 신규 API 규격은 실제 발급키로 **라이브 검증 완료**(2026-07):
+> `GET /go/ythip/getPlcy`, 인증 `apiKeyNm` 쿼리파라미터, 응답 `result.youthPolicyList` /
+> `result.pagging.totCount`, 정책명 검색 `plcyNm`, 분류필터 `lclsfNm`. 필드 매핑은
+> `src/policy_mcp/clients/youthcenter.py` 상단 주석 참고.
 
 ## 데이터 기준일
 
