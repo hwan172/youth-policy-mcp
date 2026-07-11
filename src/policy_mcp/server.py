@@ -19,6 +19,7 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from . import memory, policies, policy_corpus
+from .clients import youthcenter_centers
 from .config import settings
 from .eligibility import UserProfile, evaluate
 
@@ -150,6 +151,33 @@ async def remember_user_profile(user_key: str, note: str) -> dict:
 async def recall_user_profile(user_key: str, query: str = "", k: int = 6) -> dict:
     """저장된 사용자 상황/선호 회상(개인화). 추천·판정 전에 호출해 반영."""
     return memory.recall(user_key, query, k)
+
+
+@mcp.tool(
+    description=(
+        "Youth Policy Navigator(청년 정책 내비게이터): find nearby Korean youth centers (청년센터/"
+        "청년공간) for offline, in-person help — connecting a user to a local place where staff can "
+        "walk them through applications and documents AFTER policies are matched. Filter by region "
+        "(시도/시군구 name, e.g. '서울', '경기 수원') and/or a free-text keyword (center name or area). "
+        "Returns each center's name, address, phone, homepage URL, and 시도/시군구. Backed by the "
+        "온통청년 (Youth Center) getSpace open API (about 678 centers nationwide) when a key is "
+        "configured; region and keyword filtering are applied client-side. Call this once the user "
+        "wants face-to-face guidance or asks where they can get help near them."
+    ),
+    annotations=ToolAnnotations(title="Find youth centers", **_READONLY),
+)
+async def find_youth_centers(
+    region: str | None = None,
+    keyword: str | None = None,
+    limit: int = 8,
+) -> dict:
+    """전국 청년센터 검색(온통청년 getSpace). 정책 매칭 후 오프라인 상담 연결용.
+
+    region: 시도/시군구명 부분일치(예: '서울', '경기 수원'). keyword: 센터명/지역 자유 검색.
+    반환: 센터 목록(이름·주소·전화·홈페이지·시도/시군구) + note. 키 미설정 시 mock 폴백(is_mock=True).
+    """
+    return await youthcenter_centers.search_centers(
+        settings.youthcenter_centers_key, region=region, keyword=keyword, limit=limit)
 
 
 def main() -> None:

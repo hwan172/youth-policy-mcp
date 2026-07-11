@@ -153,6 +153,7 @@ async def search_policies(
     result = {
         "items": items,
         "count": len(items),
+        "total_count": _extract_total(data),  # result.pagging.totCount(질의 전체 매칭 건수)
         "is_mock": False,
         "source": "온통청년 청년정책 API (한국고용정보원, 공공데이터포털 15143273)",
         "note": "라이브 API 응답입니다. 필드 매핑은 clients/youthcenter.py 에서 관리합니다.",
@@ -160,6 +161,20 @@ async def search_policies(
     if items:  # 성공 결과만 캐시
         cache.set(ck, result)
     return result
+
+
+def _extract_total(data) -> int | None:
+    """result.pagging.totCount(질의에 매칭되는 전체 건수)를 방어적으로 추출한다."""
+    if isinstance(data, dict):
+        res = data.get("result")
+        if isinstance(res, dict):
+            pag = res.get("pagging") or res.get("paging")
+            if isinstance(pag, dict):
+                try:
+                    return int(pag.get("totCount"))
+                except (TypeError, ValueError):
+                    return None
+    return None
 
 
 def _extract_items(data) -> list[dict]:

@@ -13,9 +13,9 @@ async def _tools():
     return {t.name: t for t in await mcp.list_tools()}
 
 
-async def test_exactly_five_tools():
+async def test_exactly_six_tools():
     tools = await _tools()
-    assert len(tools) == 5
+    assert len(tools) == 6
 
 
 async def test_expected_tool_names_present():
@@ -26,6 +26,7 @@ async def test_expected_tool_names_present():
         "get_policy_detail",
         "remember_user_profile",
         "recall_user_profile",
+        "find_youth_centers",
     }
 
 
