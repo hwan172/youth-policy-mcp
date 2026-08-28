@@ -1,92 +1,116 @@
-# Youth Policy Navigator (청년 정책 내비게이터)
+<div align="center">
 
-카카오 PlayMCP 공모전용 MCP 서버. **청년 정책·지원금을 검색·매칭하고, 사용자 상황 대비
-자격 여부를 조건별로 판정(적격/부적격/정보부족)해 '이유'와 함께 반환**한다.
+# 🧭 Youth Policy Navigator
 
-단순 조회가 아니라 **'판단'이 핵심 차별점**이다. 자격 판정 결과의 `missing_info`(되물어야 할 질문)가
-호스트 LLM의 후속 질문을 유도해, "물어보고 → 저장하고 → 재판정"하는 에이전틱 루프를 만든다.
+### 청년 정책 검색·자격 판정을 위한 MCP Server
 
-## 컨셉
+**Search → Eligibility Check → Missing Info → Memory → Re-evaluation**
 
-- **검색**: 온통청년(한국고용정보원) 청년정책 API + 내장 대표 정책 코퍼스를 Contextual BM25로 융합.
-- **판정(★킬러)**: 정책의 구조화 조건(연령·지역·소득·취업상태)을 사용자 프로필과 대조해
-  조건별 `pass / fail / unknown / manual` → 종합 `eligible / ineligible / needs_more_info / manual_review`.
-- **개인화**: SQLite 메모리에 사용자 상황을 저장하고 질의 관련 항목을 BM25로 회상.
-- 설계 원칙: 서버는 **결정론적 데이터 + 판정 도구**만 제공한다. 자연어 해석·최종 안내 문구는 호스트 LLM 몫.
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-FastMCP-black?style=flat-square)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-48%20offline-success?style=flat-square)
 
-## 툴 5개
+**Kakao PlayMCP 공모전 프로젝트**
 
-| 툴 | 설명 | 종류 |
-|---|---|---|
-| `search_youth_policies(query, region?, category?, k=6)` | 청년정책 검색(API+코퍼스 융합) | read-only |
-| `check_eligibility(policy_id, user_key?, profile?)` ★ | 정책 조건 vs 프로필 자격 판정 | read-only |
-| `get_policy_detail(policy_id)` | 신청방법·기간·서류·URL·주관기관 | read-only |
-| `remember_user_profile(user_key, note)` | 사용자 상황 저장 | mutating |
-| `recall_user_profile(user_key, query?, k=6)` | 저장된 상황 회상 | read-only |
+</div>
 
-### 판정 루프 예시
+청년 정책·지원금을 단순 검색하는 데서 끝나지 않고, **사용자의 상황과 정책 조건을 비교해 적격 / 부적격 / 정보부족을 이유와 함께 판정**하는 MCP 서버입니다.
 
-1. `search_youth_policies("월세 지원")` → `youth-monthly-rent` 등 후보 + 구조화 조건.
-2. `check_eligibility("youth-monthly-rent", profile={"age": 40})` → `ineligible`, 이유: "나이 40세가 대상 연령(만 19~34세) 범위를 벗어납니다."
-3. 정보가 부족하면(`needs_more_info`) 반환된 `questions`로 사용자에게 되묻고,
-   `remember_user_profile`로 답을 저장한 뒤 `check_eligibility`를 재호출.
+## Why this project?
 
-## 실행
+| Feature | What it does |
+|---|---|
+| 🔎 **Hybrid Search** | 온통청년 API + 내장 corpus를 Contextual BM25로 검색 |
+| ✅ **Deterministic Eligibility** | 나이·지역·소득·취업 상태를 구조화 조건으로 판정 |
+| ❓ **Missing-info Loop** | 정보가 부족하면 다음 질문을 만들어 host LLM이 되묻게 함 |
+| 🧠 **User Memory** | SQLite에 사용자 상황을 저장하고 필요한 정보를 회상 |
+| 🧩 **MCP Tools** | 자연어 생성은 host LLM, 데이터·판정은 server가 담당 |
 
-```bash
-uv sync --extra dev          # 의존성 설치(+ 테스트용)
-uv run pytest -q             # 테스트 (전부 네트워크 불필요)
+## Agent Loop
 
-uv run policy-mcp                          # 로컬 stdio (MCP Inspector)
-MCP_TRANSPORT=http uv run policy-mcp       # 원격 http → http://<host>:8000/mcp
+```mermaid
+flowchart LR
+    U[User Query] --> S[Policy Search]
+    S --> E[Eligibility Check]
+    E -->|Enough info| R[Reasoned Result]
+    E -->|Missing info| Q[Follow-up Question]
+    Q --> M[Remember Profile]
+    M --> E
 ```
 
-Docker(카카오 KC 배포용, linux/amd64 필수):
+서버가 “답변 문장”을 마음대로 생성하지 않고, **근거 데이터와 결정론적 판정 결과**를 제공하도록 역할을 분리한 것이 핵심입니다.
+
+## MCP Tools
+
+| Tool | Role |
+|---|---|
+| `search_youth_policies` | 정책 검색 |
+| `check_eligibility` | 사용자 조건 기반 자격 판정 |
+| `get_policy_detail` | 신청 방법·기간·서류·URL |
+| `remember_user_profile` | 사용자 상황 저장 |
+| `recall_user_profile` | 관련 사용자 정보 회상 |
+
+## Example
+
+1. “월세 지원 정책 찾아줘” → 관련 정책 검색
+2. 자격 판정에 소득 정보가 부족함 → `needs_more_info`
+3. host LLM이 소득 정보를 질문
+4. 답변을 memory에 저장
+5. 동일 정책을 다시 판정 → `eligible / ineligible / manual_review`
+
+## Quick Start
+
+```bash
+uv sync --extra dev
+uv run pytest -q
+
+# local stdio
+uv run policy-mcp
+
+# remote HTTP
+MCP_TRANSPORT=http uv run policy-mcp
+```
+
+Docker:
 
 ```bash
 docker build --platform linux/amd64 -t policy-mcp .
 ```
 
-## API 키 발급
+API key가 없어도 내장 corpus 기반 mock으로 동작합니다.
 
-키가 없어도 **내장 코퍼스 기반 mock으로 동작**한다(응답에 `is_mock=True` 명시).
-라이브 데이터를 쓰려면:
+<details>
+<summary><b>Live 온통청년 API 사용하기</b></summary>
 
-1. <https://www.youthcenter.go.kr> 로그인 → **마이페이지 → OPEN API → 인증키 발급 신청**
-   (공공데이터포털 `한국고용정보원_온통청년_청년정책API`, 목록ID 15143273)
-2. 프로젝트 루트에 `.env` 생성 후:
+`.env`에 발급받은 정책 API 키를 설정합니다.
 
-   ```
-   YOUTHCENTER_API_KEY_POLICY=발급받은_정책API_인증키
-   # (선택) 아래 두 키는 향후 콘텐츠/청년센터 툴용 — 미설정이어도 정책 검색은 동작
-   # YOUTHCENTER_API_KEY_CONTENTS=발급받은_콘텐츠API_인증키
-   # YOUTHCENTER_API_KEY_CENTERS=발급받은_청년센터API_인증키
-   ```
-
-   > 구 단일키 `YOUTHCENTER_API_KEY` 도 하위호환으로 정책키 폴백으로 인식된다.
-
-> ✅ 온통청년 신규 API 규격은 실제 발급키로 **라이브 검증 완료**(2026-07):
-> `GET /go/ythip/getPlcy`, 인증 `apiKeyNm` 쿼리파라미터, 응답 `result.youthPolicyList` /
-> `result.pagging.totCount`, 정책명 검색 `plcyNm`, 분류필터 `lclsfNm`. 필드 매핑은
-> `src/policy_mcp/clients/youthcenter.py` 상단 주석 참고.
-
-## 데이터 기준일
-
-내장 코퍼스의 정책 조건(연령·소득·금액)은 **2026-07 기준 사실확인** 후 각 정책에 `source`·`as_of`를
-명시했다. 수치는 공고마다 변동될 수 있으므로 신청 전 각 정책의 `apply_url` 최신 공고를 확인할 것.
-
-## 구조
-
+```env
+YOUTHCENTER_API_KEY_POLICY=your_api_key
 ```
+
+2026-07 기준 신규 API 규격을 실제 발급키로 검증했습니다. 정책 조건은 공고에 따라 변동될 수 있으므로 최종 신청 전 원문 공고 확인이 필요합니다.
+
+</details>
+
+## Project Structure
+
+```text
 src/policy_mcp/
-  server.py          # FastMCP 서버 + 툴 5개
-  policies.py        # 검색 서비스(API+코퍼스 융합)
-  eligibility.py     # ★ 자격 판정 엔진(순수/결정론)
-  policy_corpus.py   # 내장 대표 정책 10선(검색 근거 + 구조화 조건)
-  memory.py          # 개인화 메모리(SQLite + BM25 회상)
-  retrieval.py       # Contextual BM25 엔진
-  cache.py           # in-memory TTL 캐시
-  config.py          # 환경설정
-  clients/youthcenter.py  # 온통청년 API 클라이언트(+mock 폴백)
-tests/               # 네트워크 불필요 단위테스트 (48개)
+├── server.py          # FastMCP server / tools
+├── policies.py        # search service
+├── eligibility.py     # deterministic eligibility engine
+├── policy_corpus.py   # built-in policy corpus
+├── memory.py          # SQLite + BM25 memory
+├── retrieval.py       # Contextual BM25
+└── clients/           # Youth Center API client
+
+tests/                 # 48 offline tests
 ```
+
+## Design Principle
+
+> **LLM은 해석과 대화를 담당하고, eligibility decision은 재현 가능한 코드가 담당한다.**
+
+이 구조를 통해 정책 검색 결과가 바뀌더라도 자격 판정 과정과 근거를 추적하기 쉽게 만들었습니다.
